@@ -3,9 +3,16 @@
 #include <assert.h>
 #include <iostream>
 
-#include "glfw3-4_include/glfw3.h"
-#include "dawn2024-05-05_include/webgpu.h"
+#include "GLFW/glfw3.h"
+#include "webgpu/webgpu.h"
 #include "glfw3webgpu.h"
+
+#ifndef IMGUI_DEFINE_MATH_OPERATORS
+#define IMGUI_DEFINE_MATH_OPERATORS
+#endif
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_wgpu.h"
 
 struct WGPUState
 {
@@ -14,15 +21,26 @@ struct WGPUState
     WGPUAdapter adapter;
     WGPUDevice device;
     WGPUQueue queue;
-    WGPUSwapChain swapchain;
+    
+    int swapchainWidth;
+    int swapchainHeight;
+    WGPUTexture frame;
+    WGPUTextureView frameView;
+    WGPURenderPassEncoder pass;
+    WGPUCommandEncoder encoder;
+    WGPUCommandBuffer cmdBuffer;
 };
 
 // Returns the DPI scale
 float HandleDPI();
 WGPUState InitWGPU(GLFWwindow* window);
 void CleanupWGPU(WGPUState* state);
-void InitDearImgui(GLFWwindow* window);
+void InitDearImgui(GLFWwindow* window, const WGPUState state);
+void RenderDearImgui(WGPUState* state);
+void CleanupDearImgui();
 void WGPUMessageCallback(WGPUErrorType type, char const* message, void* userDataPtr);
+void FrameCleanup(WGPUState* state);
+void Resize(WGPUState* state, int width, int height);
 
 int main()
 {
@@ -40,16 +58,46 @@ int main()
     
     WGPUState wgpu = InitWGPU(window);
     
-    InitDearImgui(window);
+    InitDearImgui(window, wgpu);
+    
+    bool showDemoWindow = true;
     
     // Main loop
     while(!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
         
+        // React to changes in screen size
+        int width, height;
+        glfwGetFramebufferSize((GLFWwindow*)window, &width, &height);
+        if(width != wgpu.swapchainWidth || height != wgpu.swapchainHeight)
+        {
+            ImGui_ImplWGPU_InvalidateDeviceObjects();
+            Resize(&wgpu, width, height);
+            ImGui_ImplWGPU_CreateDeviceObjects();
+        }
+        
+        // Signal the start of frame to imgui
+        ImGui_ImplWGPU_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+        
+        if(showDemoWindow)
+            ImGui::ShowDemoWindow(&showDemoWindow);
+        
+        RenderDearImgui(&wgpu);
+        
+        // This is necessary to display validation errors
+        wgpuDeviceTick(wgpu.device);
+        
+        // Swap buffers
+        wgpuSurfacePresent(wgpu.surface);
+        
+        FrameCleanup(&wgpu);
     }
     
     CleanupWGPU(&wgpu);
+    CleanupDearImgui();
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;
@@ -160,21 +208,33 @@ WGPUState InitWGPU(GLFWwindow* window)
     wgpuDeviceSetUncapturedErrorCallback(state.device, WGPUMessageCallback, nullptr);
     
     // Swapchain
-    {
-        WGPUSwapChainDescriptor swapchainDesc = {0};
-        swapchainDesc.width = 1200;
-        swapchainDesc.height = 800;
-        swapchainDesc.usage = WGPUTextureUsage_RenderAttachment;
-        swapchainDesc.format = WGPUTextureFormat_BGRA8Unorm;
-        swapchainDesc.presentMode = WGPUPresentMode_Fifo;
-        
-        state.swapchain = wgpuDeviceCreateSwapChain(state.device, state.surface, &swapchainDesc);
-    }
-    
+    Resize(&state, 1200, 800);
     return state;
 }
 
-void InitDearImgui(GLFWwindow* window)
+void CleanupWGPU(WGPUState* state)
+{
+    wgpuQueueRelease(state->queue);
+	wgpuDeviceRelease(state->device);
+	wgpuAdapterRelease(state->adapter);
+	wgpuInstanceRelease(state->instance);
+	wgpuSurfaceRelease(state->surface);
+    
+    memset(&state->queue, 0, sizeof(WGPUQueue));
+    memset(&state->device, 0, sizeof(WGPUDevice));
+    memset(&state->adapter, 0, sizeof(WGPUAdapter));
+    memset(&state->instance, 0, sizeof(WGPUInstance));
+    memset(&state->surface, 0, sizeof(WGPUSurface));
+}
+
+void WGPUMessageCallback(WGPUErrorType type, char const* message, void* userDataPtr)
+{
+    printf("Uncaptured device error: type %d", type);
+    if(message) printf(" (%s)", message);
+    printf("\n");
+}
+
+void InitDearImgui(GLFWwindow* window, const WGPUState state)
 {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
@@ -184,30 +244,85 @@ void InitDearImgui(GLFWwindow* window)
     // Setup style
     ImGui::StyleColorsDark();
     
-    // Setup platform and renderer backends
+    // Setup platform backend
+    ImGui_ImplGlfw_InitForOther(window, true);
     
+    // Setup renderer backend
+    ImGui_ImplWGPU_InitInfo initInfo;
+    initInfo.Device = state.device;
+    initInfo.NumFramesInFlight = 1;
+    initInfo.RenderTargetFormat = WGPUTextureFormat_BGRA8Unorm;
+    initInfo.DepthStencilFormat = WGPUTextureFormat_Undefined;
+    ImGui_ImplWGPU_Init(&initInfo);
 }
 
-void CleanupWGPU(WGPUState* state)
+void RenderDearImgui(WGPUState* state)
 {
-    wgpuQueueRelease(state->queue);
-	wgpuSwapChainRelease(state->swapchain);
-	wgpuDeviceRelease(state->device);
-	wgpuAdapterRelease(state->adapter);
-	wgpuInstanceRelease(state->instance);
-	wgpuSurfaceRelease(state->surface);
+    // Generate the rendering data
+    ImGui::Render();
     
-    memset(&state->queue, 0, sizeof(WGPUQueue));
-    memset(&state->swapchain, 0, sizeof(WGPUSwapChain));
-    memset(&state->device, 0, sizeof(WGPUDevice));
-    memset(&state->adapter, 0, sizeof(WGPUAdapter));
-    memset(&state->instance, 0, sizeof(WGPUInstance));
-    memset(&state->surface, 0, sizeof(WGPUSurface));
+    // Prepare frame
+    WGPUSurfaceTexture surfTexture;
+    wgpuSurfaceGetCurrentTexture(state->surface, &surfTexture);
+    
+    state->frame = surfTexture.texture;
+    state->frameView = wgpuTextureCreateView(state->frame, nullptr);
+    
+    WGPURenderPassColorAttachment colorAttachments = {};
+    colorAttachments.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    colorAttachments.loadOp = WGPULoadOp_Clear;
+    colorAttachments.storeOp = WGPUStoreOp_Store;
+    colorAttachments.clearValue = { 0.5, 0.5, 0.5, 1 };
+    colorAttachments.view = state->frameView;
+    
+    WGPURenderPassDescriptor renderPassDesc = {};
+    renderPassDesc.colorAttachmentCount = 1;
+    renderPassDesc.colorAttachments = &colorAttachments;
+    renderPassDesc.depthStencilAttachment = nullptr;
+    
+    WGPUCommandEncoderDescriptor encDesc = {};
+    state->encoder = wgpuDeviceCreateCommandEncoder(state->device, &encDesc);
+    
+    // Perform actual rendering
+    state->pass = wgpuCommandEncoderBeginRenderPass(state->encoder, &renderPassDesc);
+    ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), state->pass);
+    wgpuRenderPassEncoderEnd(state->pass);
+    
+    WGPUCommandBufferDescriptor cmdBufferDesc = {};
+    state->cmdBuffer = wgpuCommandEncoderFinish(state->encoder, &cmdBufferDesc);
+    wgpuQueueSubmit(state->queue, 1, &state->cmdBuffer);
 }
 
-void WGPUMessageCallback(WGPUErrorType type, char const* message, void* userDataPtr)
+void Resize(WGPUState* state, int width, int height)
 {
-    std::cout << "Uncaptured device error: type " << type;
-    if(message) std::cout << " (" << message << ")";
-    std::cout << std::endl;
+    WGPUSurfaceConfiguration surfaceConfig = {0};
+    surfaceConfig.nextInChain = nullptr;
+    surfaceConfig.device = state->device;
+    surfaceConfig.format = WGPUTextureFormat_BGRA8Unorm;
+    surfaceConfig.usage  = WGPUTextureUsage_RenderAttachment;
+    surfaceConfig.viewFormatCount = 0;
+    surfaceConfig.viewFormats = nullptr;
+    surfaceConfig.alphaMode = WGPUCompositeAlphaMode_Auto;
+    surfaceConfig.width = width;
+    surfaceConfig.height = height;
+    surfaceConfig.presentMode = WGPUPresentMode_Fifo;
+    wgpuSurfaceConfigure(state->surface, &surfaceConfig);
+    
+    state->swapchainWidth = 1200;
+    state->swapchainHeight = 800;
+}
+
+void FrameCleanup(WGPUState* state)
+{
+    wgpuTextureViewRelease(state->frameView);
+    wgpuRenderPassEncoderRelease(state->pass);
+    wgpuCommandEncoderRelease(state->encoder);
+    wgpuCommandBufferRelease(state->cmdBuffer);
+}
+
+void CleanupDearImgui()
+{
+    ImGui_ImplWGPU_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
 }

@@ -35,7 +35,7 @@
 
 #include "glfw3webgpu.h"
 
-#include <dawn2024-05-05_include/webgpu.h>
+#include <webgpu/webgpu.h>
 
 #define WGPU_TARGET_MACOS 1
 #define WGPU_TARGET_LINUX_X11 2
@@ -60,7 +60,7 @@
 #include <QuartzCore/CAMetalLayer.h>
 #endif
 
-#include <glfw3-4_include/glfw3.h>
+#include <GLFW/glfw3.h>
 #if WGPU_TARGET == WGPU_TARGET_MACOS
 #define GLFW_EXPOSE_NATIVE_COCOA
 #elif WGPU_TARGET == WGPU_TARGET_LINUX_X11
@@ -72,7 +72,7 @@
 #endif
 
 #if !defined(__EMSCRIPTEN__)
-#include <glfw3-4_include/glfw3native.h>
+#include <GLFW/glfw3native.h>
 #endif
 
 WGPUSurface glfwGetWGPUSurface(WGPUInstance instance, GLFWwindow* window) {

@@ -30,8 +30,8 @@
 #ifndef _glfw3_webgpu_h_
 #define _glfw3_webgpu_h_
 
-#include "dawn2024-05-05_include/webgpu.h"
-#include "glfw3-4_include/glfw3.h"
+#include "webgpu/webgpu.h"
+#include "GLFW/glfw3.h"
 
 #ifdef __cplusplus
 extern "C" {
