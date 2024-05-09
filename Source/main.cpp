@@ -7,16 +7,6 @@
 #include "dawn2024-05-05_include/webgpu.h"
 #include "glfw3webgpu.h"
 
-struct GfxState
-{
-#ifdef _WIN32
-#elif defined(__APPLE__)
-#elif defined(__linux__)
-#else
-#error "Code for this operating system was not implemented"
-#endif
-};
-
 struct WGPUState
 {
     WGPUInstance instance;

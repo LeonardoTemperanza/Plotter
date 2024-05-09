@@ -9,10 +9,10 @@ REM etc.
 @echo off
 setlocal enabledelayedexpansion
 
-if not exist ..\Build mkdir ..\Build 
-if not exist ..\Build\Win64 mkdir ..\Build\Win64
+if not exist Build mkdir Build 
+if not exist Build\Win64 mkdir Build\Win64
 
-pushd ..\Build\Win64
+pushd Build\Win64
 
 set include_dirs=/I..\..\Source
 set lib_dirs=/LIBPATH:..\..\Libs\Win64
