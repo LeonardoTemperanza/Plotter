@@ -3,6 +3,8 @@
 #include <assert.h>
 #include <iostream>
 
+#include <windows.h>
+
 #include "GLFW/glfw3.h"
 #include "webgpu/webgpu.h"
 #include "glfw3webgpu.h"
@@ -57,6 +59,28 @@ int main()
     assert(window);
     
     WGPUState wgpu = InitWGPU(window);
+    
+#ifdef DEBUG
+    WGPUAdapterProperties properties = WGPU_ADAPTER_PROPERTIES_INIT;
+    wgpuAdapterGetProperties(wgpu.adapter, &properties);
+    
+    WGPUBackendType backend = properties.backendType;
+    printf("Using backend: ");
+    switch(backend)
+    {
+        case WGPUBackendType_Undefined: printf("Undefined\n"); break;
+        case WGPUBackendType_Null:      printf("Null\n");      break;
+        case WGPUBackendType_WebGPU:    printf("WebGPU\n");    break;
+        case WGPUBackendType_D3D11:     printf("D3D11\n");     break;
+        case WGPUBackendType_D3D12:     printf("D3D12\n");     break;
+        case WGPUBackendType_Metal:     printf("Metal\n");     break;
+        case WGPUBackendType_Vulkan:    printf("Vulkan\n");    break;
+        case WGPUBackendType_OpenGL:    printf("OpenGL\n");    break;
+        case WGPUBackendType_OpenGLES:  printf("OpenGLES\n");  break;
+        case WGPUBackendType_Force32:   printf("Invalid\n");   break;
+        default:                        printf("Invalid\n");   break;
+    }
+#endif
     
     InitDearImgui(window, wgpu);
     
@@ -131,18 +155,16 @@ WGPUState InitWGPU(GLFWwindow* window)
     WGPUState state = {0};
     
     // Instance
-    WGPUInstanceDescriptor instanceDesc = {0};
+    WGPUInstanceDescriptor instanceDesc = WGPU_INSTANCE_DESCRIPTOR_INIT;
     instanceDesc.nextInChain = nullptr;
     state.instance = wgpuCreateInstance(&instanceDesc);
-    assert(state.instance);
     
     // Surface
     state.surface = glfwGetWGPUSurface(state.instance, window);
     
     // Adapter
     {
-        WGPURequestAdapterOptions adapterOpts = {0};
-        adapterOpts.nextInChain = nullptr;
+        WGPURequestAdapterOptions adapterOpts = WGPU_REQUEST_ADAPTER_OPTIONS_INIT;
         adapterOpts.compatibleSurface = state.surface;
         
         struct UserData
@@ -170,7 +192,7 @@ WGPUState InitWGPU(GLFWwindow* window)
     
     // Device
     {
-        WGPUDeviceDescriptor deviceDesc = {0};
+        WGPUDeviceDescriptor deviceDesc = WGPU_DEVICE_DESCRIPTOR_INIT;
         deviceDesc.nextInChain = nullptr;
         deviceDesc.label = "Device";
         deviceDesc.requiredFeatureCount = 0;
@@ -208,7 +230,9 @@ WGPUState InitWGPU(GLFWwindow* window)
     wgpuDeviceSetUncapturedErrorCallback(state.device, WGPUMessageCallback, nullptr);
     
     // Swapchain
-    Resize(&state, 1200, 800);
+    int width, height;
+    glfwGetFramebufferSize(window, &width, &height);
+    Resize(&state, width, height);
     return state;
 }
 
@@ -251,7 +275,7 @@ void InitDearImgui(GLFWwindow* window, const WGPUState state)
     ImGui_ImplWGPU_InitInfo initInfo;
     initInfo.Device = state.device;
     initInfo.NumFramesInFlight = 1;
-    initInfo.RenderTargetFormat = WGPUTextureFormat_BGRA8Unorm;
+    initInfo.RenderTargetFormat = wgpuSurfaceGetPreferredFormat(state.surface, state.adapter);
     initInfo.DepthStencilFormat = WGPUTextureFormat_Undefined;
     ImGui_ImplWGPU_Init(&initInfo);
 }
@@ -277,19 +301,19 @@ void RenderDearImgui(WGPUState* state)
     
     state->frameView = wgpuTextureCreateView(state->frame.texture, nullptr);
     
-    WGPURenderPassColorAttachment colorAttachments = {};
+    WGPURenderPassColorAttachment colorAttachments = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
     colorAttachments.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
     colorAttachments.loadOp = WGPULoadOp_Clear;
     colorAttachments.storeOp = WGPUStoreOp_Store;
     colorAttachments.clearValue = { 0.5, 0.5, 0.5, 1 };
     colorAttachments.view = state->frameView;
     
-    WGPURenderPassDescriptor renderPassDesc = {};
+    WGPURenderPassDescriptor renderPassDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
     renderPassDesc.colorAttachmentCount = 1;
     renderPassDesc.colorAttachments = &colorAttachments;
     renderPassDesc.depthStencilAttachment = nullptr;
     
-    WGPUCommandEncoderDescriptor encDesc = {};
+    WGPUCommandEncoderDescriptor encDesc = WGPU_COMMAND_ENCODER_DESCRIPTOR_INIT;
     state->encoder = wgpuDeviceCreateCommandEncoder(state->device, &encDesc);
     
     // Perform actual rendering
@@ -297,17 +321,17 @@ void RenderDearImgui(WGPUState* state)
     ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), state->pass);
     wgpuRenderPassEncoderEnd(state->pass);
     
-    WGPUCommandBufferDescriptor cmdBufferDesc = {};
+    WGPUCommandBufferDescriptor cmdBufferDesc = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT;
     state->cmdBuffer = wgpuCommandEncoderFinish(state->encoder, &cmdBufferDesc);
     wgpuQueueSubmit(state->queue, 1, &state->cmdBuffer);
 }
 
 void Resize(WGPUState* state, int width, int height)
 {
-    WGPUSurfaceConfiguration surfaceConfig = {0};
+    WGPUSurfaceConfiguration surfaceConfig = WGPU_SURFACE_CONFIGURATION_INIT;
     surfaceConfig.nextInChain = nullptr;
     surfaceConfig.device = state->device;
-    surfaceConfig.format = WGPUTextureFormat_BGRA8Unorm;
+    surfaceConfig.format = wgpuSurfaceGetPreferredFormat(state->surface, state->adapter);
     surfaceConfig.usage  = WGPUTextureUsage_RenderAttachment;
     surfaceConfig.viewFormatCount = 0;
     surfaceConfig.viewFormats = nullptr;

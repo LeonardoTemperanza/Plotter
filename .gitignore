@@ -1,3 +1,6 @@
+# Debugger files
+*.raddbg
+
 # Dear Imgui ini files
 *.ini
 

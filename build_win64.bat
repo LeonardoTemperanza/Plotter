@@ -28,7 +28,7 @@ set output_name=plotter.exe
 set common=/nologo /std:c++20 %sanitizer% /FC /MT %include_dirs% %source_files% /link %lib_dirs% %lib_files% /out:%output_name% /entry:mainCRTStartup
 
 REM Development build, debug is enabled, profiling and optimization disabled
-cl /Zi /Od %common%
+cl /Zi /DDEBUG /Od %common%
 set build_ret=%errorlevel%
 
 echo Done.
