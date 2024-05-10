@@ -24,7 +24,7 @@ struct WGPUState
     
     int swapchainWidth;
     int swapchainHeight;
-    WGPUTexture frame;
+    WGPUSurfaceTexture frame;
     WGPUTextureView frameView;
     WGPURenderPassEncoder pass;
     WGPUCommandEncoder encoder;
@@ -262,11 +262,20 @@ void RenderDearImgui(WGPUState* state)
     ImGui::Render();
     
     // Prepare frame
-    WGPUSurfaceTexture surfTexture;
-    wgpuSurfaceGetCurrentTexture(state->surface, &surfTexture);
+    wgpuSurfaceGetCurrentTexture(state->surface, &state->frame);
     
-    state->frame = surfTexture.texture;
-    state->frameView = wgpuTextureCreateView(state->frame, nullptr);
+    switch(state->frame.status)
+    {
+        case WGPUSurfaceGetCurrentTextureStatus_Success: break;
+        case WGPUSurfaceGetCurrentTextureStatus_Timeout: fprintf(stderr, "Timed out on GetSurfaceTexture!\n"); return;
+        case WGPUSurfaceGetCurrentTextureStatus_Outdated: fprintf(stderr, "Surface texture is outdated!\n"); break;
+        case WGPUSurfaceGetCurrentTextureStatus_Lost: fprintf(stderr, "Surface texture was lost\n"); return;
+        case WGPUSurfaceGetCurrentTextureStatus_OutOfMemory: fprintf(stderr, "Out of memory!\n"); return;
+        case WGPUSurfaceGetCurrentTextureStatus_DeviceLost: fprintf(stderr, "Device lost\n"); return;
+        case WGPUSurfaceGetCurrentTextureStatus_Force32: break;
+    }
+    
+    state->frameView = wgpuTextureCreateView(state->frame.texture, nullptr);
     
     WGPURenderPassColorAttachment colorAttachments = {};
     colorAttachments.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
@@ -308,12 +317,13 @@ void Resize(WGPUState* state, int width, int height)
     surfaceConfig.presentMode = WGPUPresentMode_Fifo;
     wgpuSurfaceConfigure(state->surface, &surfaceConfig);
     
-    state->swapchainWidth = 1200;
-    state->swapchainHeight = 800;
+    state->swapchainWidth = width;
+    state->swapchainHeight = height;
 }
 
 void FrameCleanup(WGPUState* state)
 {
+    wgpuTextureRelease(state->frame.texture);
     wgpuTextureViewRelease(state->frameView);
     wgpuRenderPassEncoderRelease(state->pass);
     wgpuCommandEncoderRelease(state->encoder);

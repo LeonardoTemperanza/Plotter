@@ -1,3 +1,6 @@
+# Dear Imgui ini files
+*.ini
+
 # Editor configuration files
 *.4coder
 build.bat
