@@ -8,6 +8,10 @@ build.bat
 # Prerequisites
 *.d
 
+# Debug Info
+*.ilk
+*.pdb
+
 # Compiled Object files
 *.slo
 *.lo
